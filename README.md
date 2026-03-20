@@ -1,2 +1,1 @@
-# SEQ_Bruk_MP-MRI_muscle
-Bruker sequences for muscle MRI
+# SEQ_Bruk_SL_FRAGILE

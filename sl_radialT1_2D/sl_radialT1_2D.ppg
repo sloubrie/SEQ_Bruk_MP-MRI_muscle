@@ -1,0 +1,364 @@
+;===============================================================
+;=
+;= $Source: /pv/CvsTree/pv/gen/src/prg/methods/UTE/sl_radialT1_2D.ppg,v $
+;=
+;= A radial imaging pulse program
+;=
+;= $Id: sl_radialT1_2D.ppg,v 1.25.2.1 2014/02/26 15:14:08 sako Exp $
+;===============================================================
+
+
+  preset off
+
+#include <MRI.include>
+define list<grad_shape> Shape2={$GradShape2}
+
+;============================================================
+#include <TrajectoryDef.mod>
+
+if (PVM_TrajAdjustmentRunning == Yes)
+{ 
+  subr trajPerform()
+}
+else
+{
+;===========================================================
+;   definition of delays
+;===========================================================
+
+define delay d1m
+"d1m = d1 - 10u"
+
+define delay d12m
+"d12m = d12 - de"
+
+define delay spoilt
+"spoilt = 2*d1 + d16 + d17"
+
+define delay d13d5
+"d13d5 = d13 + d5"
+
+; MP2RAGE 19-12-2017
+define list<delay> MpDelay={$IRVarDelay}
+1u      MpDelay.res
+;===========================================================
+;   declaration of 2d loop
+
+define loopcounter N_Ir = {$IrNumber}
+define loopcounter N_IrDs
+define loopcounter GREproj = {$NRegroup}
+define loopcounter N_GRE = {$PVM_NEchoImages}
+define loopcounter DScount
+;===========================================================
+define list<grad_scalar> ProjR={$GradAmpR}
+define list<grad_scalar> ProjP={$GradAmpP}
+define list<grad_shape> Shape1={$GradShape1}
+define list<grad_shape> Shape2={$GradShape2}
+
+grad_zero_for_gs <ProjR,ProjP>
+
+ProjR.res
+ProjP.res
+
+define loopcounter projs = {$NPro}
+;"l3 = projs + l11*GREproj"	;16-02-2018
+"N_IrDs = N_Ir+l11"		;16-02-2018
+"DScount = l11*GREproj"
+
+
+define list<frequency> fq1list = {$ACQ_O1_list}
+define list<frequency> fq2list = {$ACQ_O2_list}
+
+;===========================================================
+;   declaration of phase lists
+;===========================================================
+define list<phase> phaselist = { $RFPhaseList } 
+1u    phaselist.res
+
+;===========================================================
+;   declaration of Power lists
+;===========================================================
+
+define list<power> PwL = { $PVM_ppgPowerList1 } ; Composite Pulse 20180323
+define pulse p2b
+"p2b = p2/2.0"
+
+define list<power> PwL2 = { $PVM_ppgPowerList2 } ; Angle modification
+1u    PwL2.res
+
+;===========================================================
+; Selective inversion
+
+;#include <tf_PrepModulesHeadIR.mod> 
+#include <PrepModulesHead.mod> 
+
+;if(PVM_SelIrOnOff)
+;{
+;  define list<frequency> IrFL = {$PVM_SelIrFL} 
+;  define delay IrD0 = {$PVM_SelIrD0}
+;  define delay IrD1 = {$PVM_SelIrD1}
+;  define delay IrD2 = {$PVM_SelIrD2}
+;  define delay IrD3 = {$PVM_SelIrD3}
+;  define delay IrD4 = {$PVM_SelIrD4}
+
+;  define pulse IrP0 = {$PVM_SelIrP0}
+;  define loopcounter IrL0 = {$PVM_SelIrL0}
+;}
+
+;===========================================================
+
+INIT_DEVICES
+
+if(DS>0)
+{
+  dsl, 
+  0u	ProjR.dec
+  0u	ProjP.dec
+  5u
+  lo to dsl times DScount	;16-02-2018
+    	                                      ProjR.store
+	                                      ProjP.store
+}
+
+;===============================================================================
+;	D/P               spec control          gradients	         
+;===============================================================================
+start, 	5u
+
+  if(PVM_SelIrOnOff == On)
+  {
+    1u      IrFL.res      
+   }
+
+slice,  5u     
+
+if (GradSync == Yes)
+{
+	1u	GRAD_SYNC
+}
+;----------------------------------CompositePulse 20180323----------
+if(BinOnOff)
+{
+    1u  ph2.res fq2list:f1 ; PwL.res
+
+;binomial,
+;
+;    d2      PwL:f1      gatepulse 1
+;    (p2:sp2(currentpower) ph2):f1
+;
+;    5u  PwL.inc ph2.inc
+;
+;lo to binomial times Nbpulse
+    d2      PwL:f1      gatepulse 1
+    (p2:sp2(currentpower) ph2):f1
+    5u      ph2.inc
+    (p2:sp2(currentpower) ph2):f1
+    5u      ph2.inc
+    (p2:sp2(currentpower) ph2):f1
+}
+else
+{
+
+subr TriggerPhase()
+
+;    subr SliceSelIr()  
+  if(PVM_SelIrOnOff == On)
+  {
+    50u      ;IrFL.res
+    ;irloop,  
+    10u      IrFL :f1
+    IrD4     grad_ramp{0, 0, PVM_SelIrGradAmp*100}
+    IrD3     gatepulse 1
+    (IrP0:sp42  ph0):f1
+    IrD4     grad_off
+    IrD0     ;grad_matrix.inc IrFL.inc
+    ;lo to irloop times IrL0
+    IrD2     grad_ramp{0, 0, PVM_SelIrSpoilAmp}
+    IrD4     grad_off ;IrFL.res
+    IrD1     ;grad_matrix.res
+  }
+
+}
+;    subr FovSat()                      ;SA2RAGE 20180913
+
+NGRE, 1u
+
+;if(PVM_TriggerModule == On)
+;
+        1000u
+;}
+;else
+;{
+        MpDelay                                       
+;}
+
+
+
+	                                      ProjR.restore
+	                                      ProjP.restore
+;----------------------------------GRE block loop-------------------
+GRE,    
+
+movie,  10u               fq8(receive):f1
+;----------------------------------preparation modules -------------
+;subr FovSat()                      ;SA2RAGE 20180913
+;subr MagTrans()
+;subr FatSup()
+5u
+;subr TriggerPhase()
+;----------------------------------slice spoiler--------------------
+        d6                grad_ramp{0, 0, g5*plusminus}
+        d1                grad_off
+
+
+;----------------------------------slice selection------------------
+if(AcqMode == FID)
+{
+        10u               gc_control
+        {
+         d11     grad_shape{0, 0, Shape1()*plusminus}
+         d13d5
+if(ACQ_scan_type != Setup_Experiment)
+{
+         d15	 grad_shape{ReadGrad*Shape2()*ProjR, PhaseGrad*Shape2()*ProjP,0}		      
+}
+if(ACQ_scan_type == Setup_Experiment)
+{ 
+	 d15
+}
+         d1      grad_off  
+        }
+ 	d1m		  fq1list:f1             	 
+       	d2 	          gatepulse 1
+        1u                PwL2:f1     
+        ;(p0:sp0 ph1):f1
+        (p0:sp0(currentpower) phaselist):f1
+        d12m
+        d14
+        d5                ;echo delay
+;----------------------------------fid acquisition------------------
+                          ;ADC_INIT_B(ph1, ph0)
+                          ADC_INIT_B(NOPH, phaselist)       ;RF Spoiling 20180913
+        d7                ADC_START              
+        aqq
+        spoilt             
+}
+else
+{
+;----------------------------------slice selection------------------
+        10u               gc_control
+        {
+         d11		  grad_shape{0, 0, Shape1()*plusminus}
+        }
+ 	d1m		  fq1list:f1             	 
+       	d2 	          gatepulse 1
+        1u                PwL2:f1     
+        ;(p0:sp0 ph1):f1
+        (p0:sp0(currentpower) phaselist):f1 
+        d12m
+        d5                ;echo delay
+;----------------------------------echo acquisition-----------------
+        ;ADC_INIT_B(ph1, ph0) 
+        ADC_INIT_B(NOPH, phaselist)       ;RF Spoiling 20180913
+        d15  ADC_START    grad_shape{ReadGrad*Shape2()*ProjR, PhaseGrad*Shape2()*ProjP,0}           
+        d1                grad_off
+}
+        d0                ADC_END
+;----------------------------------movie loop----------------------
+lo to movie times l10
+lo to start times NA
+;----------------------------------projection loop-----------------
+	1u                rpp1                  ProjR.inc
+        1u					ProjP.inc
+        1u                                      phaselist.inc
+lo to GRE times GREproj
+        1u                                        
+
+if(PVM_TriggerModule == On)
+{
+        1u
+}
+else
+{
+        1u                                        MpDelay.inc
+}
+
+        1u                                        PwL2.inc
+        1u                                        phaselist.res
+
+subr TriggerPhase()
+
+if(BinOnOff)
+{
+    1u 
+    d2  
+    p2
+    5u     
+    p2
+    5u 
+    p2
+}
+
+else
+{
+  if(PVM_SelIrOnOff == On)
+  {
+    50u
+    10u     
+    IrD4     
+    IrD3     
+    IrP0
+    IrD4     
+    IrD0    
+    IrD2     
+    IrD4    
+    IrD1   
+  }
+}
+
+lo to NGRE times N_GRE
+d18
+;subr TriggerPhase()
+
+	1u                                      ProjR.store
+	1u                                      ProjP.store
+        1u                                        PwL2.res
+;----------------------------------slice loop----------------------
+        1u                fq1list.inc        grad_matrix.inc       
+          
+if(PVM_SelIrOnOff == On)
+{
+	1u                                       IrFL.inc
+}
+lo to slice times NSLICES
+;----------------------------------slice alternation---------------
+if(SliceAlter == Yes)
+{
+	1u					plusminus.inc  
+	lo to slice times NECHOES
+}
+;----------------------------------averaging loop-------------------
+	1u		  ipp1                  grad_matrix.res
+        1u                fq1list.res
+if(PVM_SelIrOnOff == On)
+{
+        1u                IrFL.res
+}
+lo to start times N_IrDs
+    "N_IrDs = N_Ir"
+;   "l3=projs"
+	1u                                      ProjR.res
+	1u                                      ProjP.res
+lo to start times NAE
+        1u
+lo to start times NR
+SETUP_GOTO(start) 
+exit
+}
+;============================================================
+;phase lists
+
+ph0 = 0
+ph1 = 0 2 1 3
+ph2 = 0 1 0 ; Composite Pulse 20180323
+;============================================================
