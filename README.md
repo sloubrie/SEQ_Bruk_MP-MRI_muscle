@@ -1,1 +1,1 @@
-# SEQ_Bruk_SL_FRAGILE
+# SEQ_Bruk_MP-MRI_muscle
